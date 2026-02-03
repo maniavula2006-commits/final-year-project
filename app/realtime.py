@@ -60,8 +60,12 @@ while True:
                 last_prediction = gesture_text
 
             if stable_count == STABLE_THRESHOLD:
-                if len(sentence) == 0 or sentence[-1] != gesture_text:
-                    sentence.append(gesture_text)
+                if gesture_text == "SPACE":
+                    sentence.append(" ")
+                else:
+                    if len(sentence) == 0 or sentence[-1] != gesture_text:
+                        sentence.append(gesture_text)
+                stable_count = 0
 
     # ---------- DRAW SUBTITLE BAR ----------
     h, w, _ = frame.shape
