@@ -4,14 +4,15 @@ import csv
 import os
 
 # ========= CONFIG =========
-GESTURE_NAME = "B"   # CHANGE THIS EACH TIME
-SAMPLES = 200            # Number of samples per gesture
-DATA_DIR = "../data/raw1"
+GESTURE_NAME = "A"      # CHANGE THIS EACH TIME
+SAMPLES = 300           # Increase samples for better accuracy
+DATA_DIR = "../data/raw2"
 # ==========================
 
 os.makedirs(DATA_DIR, exist_ok=True)
 csv_path = os.path.join(DATA_DIR, f"{GESTURE_NAME}.csv")
 
+# MediaPipe setup
 mp_hands = mp.solutions.hands
 hands = mp_hands.Hands(
     static_image_mode=False,
@@ -20,7 +21,19 @@ hands = mp_hands.Hands(
     min_tracking_confidence=0.7
 )
 
-cap = cv2.VideoCapture(0)
+# Camera setup (optimized)
+cap = cv2.VideoCapture(0, cv2.CAP_DSHOW)
+cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+cap.set(cv2.CAP_PROP_FPS, 30)
+cap.set(cv2.CAP_PROP_BRIGHTNESS, 150)
+cap.set(cv2.CAP_PROP_CONTRAST, 50)
+cap.set(3, 1280)
+cap.set(4, 720)
+
+# Warm-up camera
+for _ in range(5):
+    cap.read()
+
 count = 0
 
 with open(csv_path, mode="w", newline="") as f:
@@ -32,30 +45,64 @@ with open(csv_path, mode="w", newline="") as f:
             break
 
         frame = cv2.flip(frame, 1)
+
         rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        rgb.flags.writeable = False
         result = hands.process(rgb)
+        rgb.flags.writeable = True
 
         if result.multi_hand_landmarks:
-            for hand_landmarks in result.multi_hand_landmarks:
-                row = []
+            left_hand = [0] * 63
+            right_hand = [0] * 63
+
+            for idx, hand_landmarks in enumerate(result.multi_hand_landmarks):
+                hand_label = result.multi_handedness[idx].classification[0].label
+
+                temp = []
+
+                # Normalize position (relative to wrist)
+                base_x = hand_landmarks.landmark[0].x
+                base_y = hand_landmarks.landmark[0].y
+
                 for lm in hand_landmarks.landmark:
-                    row.extend([lm.x, lm.y, lm.z])
+                    temp.extend([
+                        lm.x - base_x,
+                        lm.y - base_y,
+                        lm.z
+                    ])
 
-                row.append(GESTURE_NAME)
-                writer.writerow(row)
+                # Normalize scale
+                max_value = max(abs(x) for x in temp)
+                if max_value != 0:
+                    temp = [x / max_value for x in temp]
 
-                count += 1
-                cv2.putText(
-                    frame,
-                    f"Collecting {GESTURE_NAME}: {count}/{SAMPLES}",
-                    (10, 40),
-                    cv2.FONT_HERSHEY_SIMPLEX,
-                    1,
-                    (0, 0, 0),
-                    2
-                )
+                if hand_label == "Left":
+                    left_hand = temp
+                else:
+                    right_hand = temp
 
-        cv2.imshow("Data Collection", frame)
+            # Combine both hands
+            row = left_hand + right_hand
+            row.append(GESTURE_NAME)
+
+            writer.writerow(row)
+            count += 1
+
+            # Show progress
+            cv2.putText(
+                frame,
+                f"Collecting {GESTURE_NAME}: {count}/{SAMPLES}",
+                (10, 40),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                1,
+                (0, 0, 0),
+                2
+            )
+
+            # Delay to avoid duplicate frames
+            cv2.waitKey(80)
+
+        cv2.imshow("Data Collection (Improved)", frame)
 
         if cv2.waitKey(1) & 0xFF == ord('q'):
             break
