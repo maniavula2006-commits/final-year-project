@@ -1,35 +1,88 @@
-from flask import Flask, render_template, request
+from flask import Flask, render_template, request, redirect
 import subprocess
 import sys
 import os
+import sqlite3
+
+from database import init_db, add_default_users, check_login, add_user
 
 app = Flask(__name__)
 
-BASE_DIR = os.path.dirname(__file__)
-APP_DIR = os.path.join(BASE_DIR, "..", "app")
+# Initialize database
+init_db()
+add_default_users()
 
-@app.route("/")
+BASE_DIR = os.path.dirname(__file__)
+
+# ===== LOGIN PAGE =====
+@app.route('/')
 def login():
     return render_template("login.html")
 
-@app.route("/home", methods=["POST"])
+
+# ===== SIGNUP PAGE =====
+@app.route('/signup')
+def signup():
+    return render_template("signup.html")
+
+
+# ===== REGISTER USER =====
+@app.route('/register', methods=['POST'])
+def register():
+    username = request.form.get("username")
+    password = request.form.get("password")
+
+    add_user(username, password)
+
+    return redirect('/')
+
+
+# ===== LOGIN CHECK =====
+@app.route('/home', methods=['POST'])
 def home():
-    return render_template("home.html")
+    username = request.form.get("username")
+    password = request.form.get("password")
 
-@app.route("/select")
-def select_mode():
-    return render_template("select_mode.html")
+    user = check_login(username, password)
 
-@app.route("/run", methods=["POST"])
-def run_mode():
-    mode = request.form["mode"]
+    if user:
+        if user[3] == "admin":
+            return redirect("/admin")
+        else:
+            return render_template("select_mode.html")
+    else:
+        return "Invalid Username or Password"
+
+
+# ===== ADMIN DASHBOARD =====
+@app.route('/admin')
+def admin():
+    conn = sqlite3.connect("database.db")
+    cursor = conn.cursor()
+
+    cursor.execute("SELECT username, role FROM users")
+    users = cursor.fetchall()
+
+    cursor.execute("SELECT username, predicted_sign, timestamp FROM logs")
+    logs = cursor.fetchall()
+
+    conn.close()
+
+    return render_template("admin.html", users=users, logs=logs)
+
+
+# ===== RUN MODEL =====
+@app.route('/run', methods=['POST'])
+def run():
+    mode = request.form.get("mode")
 
     if mode == "US":
-        subprocess.Popen([sys.executable, os.path.join(APP_DIR, "realtime_us.py")])
-    else:
-        subprocess.Popen([sys.executable, os.path.join(APP_DIR, "realtime_india.py")])
+        subprocess.Popen([sys.executable, "../app/realtime_us.py"])
+    elif mode == "INDIA":
+        subprocess.Popen([sys.executable, "../app/realtime_india.py"])
 
-    return "Translator started. Check camera window."
+    return "Camera Started!"
 
-if __name__ == "__main__":
+
+if __name__ == '__main__':
     app.run(debug=True)
